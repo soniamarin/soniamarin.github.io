@@ -1,0 +1,130 @@
+---
+title: "predictionassignment"
+author: "Sonia Marin"
+date: "Thursday, November 19, 2015"
+output: html_document
+---
+
+##1. INTRODUCTION   
+This is an Assignment for Practical Machine Learning Course. According to the information supply for the assignment, "Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, the goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset)".    
+
+##2. DESCRIPTION AND CLEANING OF DATA SET   
+The training data for this project are available in: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+The test data are available in: 
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har.   
+The goal of this project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set.   
+The análysis of data requires the use of several package and the data was read with the following code:   
+
+```{r readdata,echo=TRUE}
+library(ggplot2)
+library(caret)
+library(stats)
+library(rpart)
+library(YaleToolkit)
+library(MASS)
+datapmltraining<-read.table("./prediction assignment data/pml-training.csv",  sep=",", header=TRUE)
+dim(datapmltraining)
+datapmltesting<-read.table("./prediction assignment data/pml-testing.csv", sep=",", header=TRUE)
+dim(datapmltesting)
+```
+   
+   The summary of training data set shows that there are many missing values, which need to be cleaned. In this case, with the function NearZeroVar, many of them were eliminated. Also the package YaleToolkit was used to clean the missing values. Additionally, the first 6 variables were eliminated to keep only numeric variables.   
+   
+```{r cleaningdata, echo=TRUE}
+nzv<-nearZeroVar(datapmltraining, saveMetrics=FALSE)
+newdatatraining<-datapmltraining[,-nzv]
+dim(newdatatraining)
+newdatatesting<-datapmltesting[,-nzv]
+dim(newdatatesting)
+index<-whatis(newdatatraining)
+bad<-which(index$missing != 0)
+newdatatraining<-newdatatraining[,-bad]
+dim(newdatatraining)
+newdatatesting<-newdatatesting[,-bad]
+dim(newdatatesting)
+newdatatraincor<-newdatatraining[,-c(1,2,3,4,5,6),]
+newdatatestcor<-newdatatesting[,-c(1,2,3,4,5,6),]
+```
+   
+##3.SELECTING THE MODEL 
+   The training and testing sample are created from the cleaned data (newdatatraincor). Since, the memory available in my laptop is 4 GB, I used 20% of data in the training data.    
+   
+```{r partition,echo=TRUE}
+set.seed(2222)
+inTrain<- createDataPartition(y=newdatatraincor$classe, p=0.2, list=FALSE)
+training <- newdatatraincor[inTrain,]
+testing <- newdatatraincor[-inTrain,]
+dim(training)
+dim(testing)
+```
+   
+
+   Several algorithms were tryed: Linear Discriminant Analysis(lda), Random Forest(rf), Recursing Partioning(rpart). In each case the accuracy was checked.The best accuracy was taken from Random Forest. Cross validation is included with 5 folds. See results bellow.   
+   
+```{r selectmodel,echo=TRUE, cache=TRUE}
+x<-training[,-53]
+y<-training$classe
+##lda
+modfit1<-train(x,y, method="lda", 
+        trControl=trainControl(method="cv", number=5), allowParallel=TRUE)                             
+print(modfit1)
+pmodfit1<-predict(modfit1, newdata=testing[,-53])
+cmmod1<-confusionMatrix(testing$classe,pmodfit1)
+acc1<-cmmod1$overall[1]
+#rf
+modfit2<-train(x,y, method="rf", prox=TRUE, 
+          trControl=trainControl(method="cv", number=5), allowParallel=TRUE)
+print(modfit2)
+pmodfit2<-predict(modfit2, newdata=testing[,-53])
+cmmod2<-confusionMatrix(testing$classe,pmodfit2)
+acc2<-cmmod2$overall[1]
+#rpart
+modfit3<-train(x,y, method="rpart")
+print(modfit3)
+pmodfit3<-predict(modfit3, newdata=testing[,-53])
+cmmod3<-confusionMatrix(testing$classe,pmodfit3)
+acc3<-cmmod3$overall[1]
+acc<-c("lda"=acc1,"rf"=acc2,"rpart"=acc3)
+acc
+```
+
+##4. PREDICTION   
+
+The rf model will be the choosen, and less analysis the results for prediction.
+```{r predict,echo=TRUE}
+cmmod2
+errorate<-(1-acc2)
+badpred<-(20*errorate)
+```
+Let´s try to find importance variables
+```{r impvar,echo=TRUE,cache=TRUE}
+compareObsPred <- data.frame(cbind(testing$classe), Predicted=pmodfit2)
+varim<-varImp(modfit2, scale=TRUE)
+plot(varim, top=20)
+```
+
+##5. MISCLASSIFICATION ERROR
+
+The misclassification error with rf model, 52 predictors and cross validation of 5 folds, is 1 less the accuracy, which is `r errorate`.
+With this error rate, I can expect that from the 20 cases, that I should have   `r badpred` bad predictions out of 20. Roughly this is 1 of 20.
+
+##6. PREDICTIONS OF THE 20 CASES
+   
+   With the rf model, the prediction of the 20 cases is as follow:   
+
+```{r 20cases,echo=TRUE,cache=TRUE}
+pmodfit20cases<-predict(modfit2, newdata=newdatatestcor[,-53])
+pmodfit20cases
+answers = as.character(pmodfit20cases)
+answers
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(answers)
+```
